@@ -427,7 +427,7 @@ def collect_self_test_logs(device, data):
                 continue
 
             # metric_print cant hale boolean values, force to string output
-            device_label["result"] = str(entry['status']['passed'])
+            device_label["passed"] = str(entry['status']['passed']).lower()
 
             device_label["entry"] = str(i)
 
