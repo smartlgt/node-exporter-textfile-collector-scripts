@@ -341,7 +341,8 @@ def collect_ata_error_count(device):
     yield Metric('device_errors', device.base_labels, error_count)
 
 
-def collect_disks_test_status(wakeup_disks):
+def collect_disks_metrics_json(wakeup_disks, data_collection=True, self_test_latest=True, capabilities=True,
+                               self_test_log=True):
     for device in find_devices():
         is_active = device_is_active(device)
 
@@ -353,42 +354,84 @@ def collect_disks_test_status(wakeup_disks):
         # collect test results for the device
         data = smart_ctl_json(device)
 
-        # extra timing info, tests with no time reference are not useful
-        if data.get('power_on_time', None) and data["power_on_time"].get('hours', None):
-            power_on_time = data["power_on_time"]["hours"]
-            yield Metric('device_power_on', device.base_labels, power_on_time)
+        yield from collect_power_on(device, data)
 
-        tests = data.get('ata_smart_self_test_log', None)
-        if tests and 'standard' in tests:
-            table = tests.get('standard').get('table', None)
-            i = 0
-            for entry in reversed(table):
-                i += 1
-                power_on_hours = entry['lifetime_hours']
+        if self_test_log:
+            yield from collect_self_test_logs(device, data)
 
-                device_label = device.base_labels
-                tests_value_map = {1: "short", 2: "long", 129: "short_captive", 255: "vendor"}
-                found = False
-                for value in tests_value_map.keys():
-                    if value == entry['type']['value']:
-                        device_label['test'] = tests_value_map[value]
-                        found = True
-                        break
+        if data_collection:
+            yield from collect_offline_data_collection(device, data)
 
-                if not found:
-                    device_label['test'] = "unknown"
+        if self_test_latest:
+            yield from collect_self_test_latest(device, data)
 
-                # check if the test finished
-                if entry['status']['value'] != 0:
-                    # skip running tests
-                    continue
+        if capabilities:
+            yield from collect_capabilities(device, data)
 
-                # metric_print cant hale boolean values, force to 0/1 output
-                device_label["result"] = str(entry['status']['passed'])
 
-                device_label["entry"] = str(i)
+def collect_offline_data_collection(device, data):
+    # offline_data_collection
+    device_label = device.base_labels
+    device_label["status"] = str(data["ata_smart_data"]["offline_data_collection"]["status"]["value"])
+    yield Metric('device_data_collection', device_label, data["ata_smart_data"]["offline_data_collection"]["completion_seconds"])
 
-                yield Metric('device_self_tests', device_label, power_on_hours)
+
+def collect_self_test_latest(device, data):
+    # self_test (latest/running)
+    device_label = device.base_labels
+    device_label["status"] = str(data["ata_smart_data"]["self_test"]["status"]["value"])
+    percentage = data["ata_smart_data"]["self_test"].get("remaining_percent", 0)
+    yield Metric('device_self_test_latest', device_label, percentage)
+
+
+def collect_capabilities(device, data):
+    # capabilities
+    device_label = device.base_labels
+    for cap, value in data["ata_smart_data"]["capabilities"].items():
+        if cap != "values":
+            device_label[cap] = str(value).lower()
+    yield Metric('device_capabilities', device_label, 1)
+
+
+def collect_power_on(device, data):
+    # extra timing info, tests with no time reference are not useful
+    if data.get('power_on_time', None) and data["power_on_time"].get('hours', None):
+        power_on_time = data["power_on_time"]["hours"]
+        yield Metric('device_power_on', device.base_labels, power_on_time)
+
+
+def collect_self_test_logs(device, data):
+    tests = data.get('ata_smart_self_test_log', None)
+    if tests and 'standard' in tests:
+        table = tests.get('standard').get('table', None)
+        i = 0
+        for entry in reversed(table):
+            i += 1
+            power_on_hours = entry['lifetime_hours']
+
+            device_label = device.base_labels
+            tests_value_map = {1: "short", 2: "long", 129: "short_captive", 255: "vendor"}
+            found = False
+            for value in tests_value_map.keys():
+                if value == entry['type']['value']:
+                    device_label['test'] = tests_value_map[value]
+                    found = True
+                    break
+
+            if not found:
+                device_label['test'] = "unknown"
+
+            # check if the test finished
+            if entry['status']['value'] != 0:
+                # skip running tests
+                continue
+
+            # metric_print cant hale boolean values, force to string output
+            device_label["result"] = str(entry['status']['passed'])
+
+            device_label["entry"] = str(i)
+
+            yield Metric('device_self_tests', device_label, power_on_hours)
 
 
 def collect_disks_smart_metrics(wakeup_disks):
@@ -446,8 +489,7 @@ def main():
     # new metrics form json output
     try:
         if float(version) >= 7.0:
-            status = list(collect_disks_test_status(args.wakeup_disks))
-            metrics += status
+            metrics += list(collect_disks_metrics_json(args.wakeup_disks))
     except ValueError:
         pass
 
