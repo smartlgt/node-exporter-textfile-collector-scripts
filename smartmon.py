@@ -133,10 +133,9 @@ def smart_ctl(*args, check=True):
     # exit 64 (error in the past) - https://bugs.launchpad.net/maas/+bug/1783889
     allowed_return_codes = [0, 4, 64]
     if check and p.returncode not in allowed_return_codes:
-        raise subprocess.CalledProcessError(p.returncode, *args,
-                                     output=p.stdout)
+        raise subprocess.CalledProcessError(p.returncode, p.args,
+                                            output=p.stdout, stderr=p.stderr)
     return p.stdout.decode('utf-8')
-
 
 
 def smart_ctl_json(device):
