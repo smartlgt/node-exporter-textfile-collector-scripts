@@ -4,6 +4,7 @@ import collections
 import csv
 import datetime
 import decimal
+import json
 import re
 import shlex
 import subprocess
@@ -125,6 +126,11 @@ def smart_ctl(*args, check=True):
     return subprocess.run(
         ['smartctl', *args], stdout=subprocess.PIPE, check=check
     ).stdout.decode('utf-8')
+
+
+def smart_ctl_json(device):
+    json_output = smart_ctl('-j', '-a', *device.smartctl_select())
+    return json.loads(json_output)
 
 
 def smart_ctl_version():
@@ -325,6 +331,46 @@ def collect_ata_error_count(device):
     yield Metric('device_errors', device.base_labels, error_count)
 
 
+def collect_disks_test_status(wakeup_disks):
+    for device in find_devices():
+        is_active = device_is_active(device)
+
+        # Skip further metrics collection to prevent the disk from
+        # spinning up.
+        if not is_active and not wakeup_disks:
+            continue
+
+        # collect test results for the device
+        data = smart_ctl_json(device)
+
+        # extra timing info, tests with no time reference are not useful
+        if data.get('power_on_time', None) and data["power_on_time"].get('hours', None):
+            power_on_time = data["power_on_time"]["hours"]
+            yield Metric('device_device_power_on', device.base_labels, power_on_time)
+
+        tests = data.get('ata_smart_self_test_log', None)
+        if tests and 'standard' in tests:
+            table = tests.get('standard').get('table', None)
+            for entry in table:
+                power_on_hours = entry['lifetime_hours']
+
+                device_label = device.base_labels
+                tests_label = ["short", "long", "conveyance", "vendor", "select"]
+                for label in tests_label:
+                    if label in entry['type']['string'].lower():
+                        device_label['test'] = label
+
+                # check if the test finished
+                if entry['status']['value'] != 0:
+                    # skip running tests
+                    continue
+
+                # metric_print cant hale boolean values, force to 0/1 output
+                device_label["result"] = str(entry['status']['passed'])
+
+                yield Metric('device_self_tests', device_label, power_on_hours)
+
+
 def collect_disks_smart_metrics(wakeup_disks):
     now = int(datetime.datetime.utcnow().timestamp())
 
@@ -368,13 +414,23 @@ def main():
     parser.add_argument('-s', '--wakeup-disks', dest='wakeup_disks', action='store_true')
     args = parser.parse_args(sys.argv[1:])
 
+    version = smart_ctl_version()
     version_metric = Metric('smartctl_version', {
-        'version': smart_ctl_version()
+        'version': version
     }, True)
     metric_print_meta(version_metric, 'smartmon_')
     metric_print(version_metric, 'smartmon_')
 
     metrics = list(collect_disks_smart_metrics(args.wakeup_disks))
+
+    # new metrics form json output
+    try:
+        if float(version) >= 7.0:
+            status = list(collect_disks_test_status(args.wakeup_disks))
+            metrics += status
+    except ValueError:
+        pass
+
     metrics.sort(key=lambda i: i.name)
 
     previous_name = None
