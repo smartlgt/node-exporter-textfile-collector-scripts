@@ -356,7 +356,7 @@ def collect_disks_test_status(wakeup_disks):
         # extra timing info, tests with no time reference are not useful
         if data.get('power_on_time', None) and data["power_on_time"].get('hours', None):
             power_on_time = data["power_on_time"]["hours"]
-            yield Metric('device_device_power_on', device.base_labels, power_on_time)
+            yield Metric('device_power_on', device.base_labels, power_on_time)
 
         tests = data.get('ata_smart_self_test_log', None)
         if tests and 'standard' in tests:
