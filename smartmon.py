@@ -361,14 +361,22 @@ def collect_disks_test_status(wakeup_disks):
         tests = data.get('ata_smart_self_test_log', None)
         if tests and 'standard' in tests:
             table = tests.get('standard').get('table', None)
-            for entry in table:
+            i = 0
+            for entry in reversed(table):
+                i += 1
                 power_on_hours = entry['lifetime_hours']
 
                 device_label = device.base_labels
-                tests_label = ["short", "long", "conveyance", "vendor", "select"]
-                for label in tests_label:
-                    if label in entry['type']['string'].lower():
-                        device_label['test'] = label
+                tests_value_map = {1: "short", 2: "long", 129: "short_captive", 255: "vendor"}
+                found = False
+                for value in tests_value_map.keys():
+                    if value == entry['type']['value']:
+                        device_label['test'] = tests_value_map[value]
+                        found = True
+                        break
+
+                if not found:
+                    device_label['test'] = "unknown"
 
                 # check if the test finished
                 if entry['status']['value'] != 0:
@@ -377,6 +385,8 @@ def collect_disks_test_status(wakeup_disks):
 
                 # metric_print cant hale boolean values, force to 0/1 output
                 device_label["result"] = str(entry['status']['passed'])
+
+                device_label["entry"] = str(i)
 
                 yield Metric('device_self_tests', device_label, power_on_hours)
 
