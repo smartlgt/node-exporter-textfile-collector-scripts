@@ -123,9 +123,20 @@ def smart_ctl(*args, check=True):
     Returns:
         (str) Data piped to stdout by the smartctl subprocess.
     """
-    return subprocess.run(
-        ['smartctl', *args], stdout=subprocess.PIPE, check=check
-    ).stdout.decode('utf-8')
+    p = subprocess.run(
+        ['smartctl', *args], stdout=subprocess.PIPE
+    )
+
+    # check for specific allowed return codes
+    # smartctl >= 7.0 has some (new) error sensitivity to errors
+    # exit 4 - https://www.smartmontools.org/ticket/1233
+    # exit 64 (error in the past) - https://bugs.launchpad.net/maas/+bug/1783889
+    allowed_return_codes = [0, 4, 64]
+    if check and p.returncode not in allowed_return_codes:
+        raise subprocess.CalledProcessError(p.returncode, *args,
+                                     output=p.stdout)
+    return p.stdout.decode('utf-8')
+
 
 
 def smart_ctl_json(device):
