@@ -380,7 +380,7 @@ def collect_self_test_latest(device, data):
     # self_test (latest/running)
     device_label = device.base_labels
     device_label["status"] = str(data["ata_smart_data"]["self_test"]["status"]["value"])
-    percentage = data["ata_smart_data"]["self_test"].get("remaining_percent", 0)
+    percentage = data["ata_smart_data"]["self_test"]["status"].get("remaining_percent", 0)
     yield Metric('device_self_test_latest', device_label, percentage)
 
 
