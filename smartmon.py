@@ -167,7 +167,20 @@ def find_devices():
         if not tokens:
             continue
 
-        yield Device(tokens[0], parser.parse_args(tokens[1:]))
+        # check for virtual devices
+        p = parser.parse_args(tokens[1:])
+        info = smart_ctl('--nocheck', 'standby', '--info', '--device', p.type, tokens[0])
+        rows = info.strip().split('\n')[3:]
+        found = False
+        for r in rows:
+            if r.lower().startswith("product") and "VIRTUAL-DISK".lower() in r.lower():
+                # skip virtual device from longhorn
+                found = True
+                break
+        if found:
+            continue
+
+        yield Device(tokens[0], p)
 
 
 def device_is_active(device):
@@ -372,25 +385,28 @@ def collect_disks_metrics_json(wakeup_disks, data_collection=True, self_test_lat
 def collect_offline_data_collection(device, data):
     # offline_data_collection
     device_label = device.base_labels
-    device_label["status"] = str(data["ata_smart_data"]["offline_data_collection"]["status"]["value"])
-    yield Metric('device_data_collection', device_label, data["ata_smart_data"]["offline_data_collection"]["completion_seconds"])
+    if data.get("ata_smart_data", None) and data["ata_smart_data"].get("offline_data_collection", None):
+        device_label["status"] = str(data["ata_smart_data"]["offline_data_collection"]["status"]["value"])
+        yield Metric('device_data_collection', device_label, data["ata_smart_data"]["offline_data_collection"]["completion_seconds"])
 
 
 def collect_self_test_latest(device, data):
     # self_test (latest/running)
     device_label = device.base_labels
-    device_label["status"] = str(data["ata_smart_data"]["self_test"]["status"]["value"])
-    percentage = data["ata_smart_data"]["self_test"]["status"].get("remaining_percent", 0)
-    yield Metric('device_self_test_latest', device_label, percentage)
+    if data.get("ata_smart_data", None) and data["ata_smart_data"].get("self_test", None):
+        device_label["status"] = str(data["ata_smart_data"]["self_test"]["status"]["value"])
+        percentage = data["ata_smart_data"]["self_test"]["status"].get("remaining_percent", 0)
+        yield Metric('device_self_test_latest', device_label, percentage)
 
 
 def collect_capabilities(device, data):
     # capabilities
     device_label = device.base_labels
-    for cap, value in data["ata_smart_data"]["capabilities"].items():
-        if cap != "values":
-            device_label[cap] = str(value).lower()
-    yield Metric('device_capabilities', device_label, 1)
+    if data.get("ata_smart_data", None) and data["ata_smart_data"].get("capabilities", None):
+        for cap, value in data["ata_smart_data"]["capabilities"].items():
+            if cap != "values":
+                device_label[cap] = str(value).lower()
+        yield Metric('device_capabilities', device_label, 1)
 
 
 def collect_power_on(device, data):
