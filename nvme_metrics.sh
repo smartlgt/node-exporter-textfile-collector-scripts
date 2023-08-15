@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-set -eu
-
+#
 # Dependencies: nvme-cli, jq (packages)
 # Based on code from
 # - https://github.com/prometheus/node_exporter/blob/master/text_collector_examples/smartmon.sh
@@ -8,6 +7,11 @@ set -eu
 # - https://github.com/vorlon/check_nvme/blob/master/check_nvme.sh
 #
 # Author: Henk <henk@wearespindle.com>
+
+set -eu
+
+# Ensure predictable numeric / date formats, etc.
+export LC_ALL=C
 
 # Check if we are root
 if [ "$EUID" -ne 0 ]; then
@@ -68,30 +72,30 @@ for device in ${device_list}; do
   value_critical_warning="$(echo "$json_check" | jq '.critical_warning')"
   echo "critical_warning_total{device=\"${disk}\"} ${value_critical_warning}"
 
-  value_media_errors="$(echo "$json_check" | jq '.media_errors')"
+  value_media_errors="$(echo "$json_check" | jq -r '.media_errors')"
   echo "media_errors_total{device=\"${disk}\"} ${value_media_errors}"
 
-  value_num_err_log_entries="$(echo "$json_check" | jq '.num_err_log_entries')"
+  value_num_err_log_entries="$(echo "$json_check" | jq -r '.num_err_log_entries')"
   echo "num_err_log_entries_total{device=\"${disk}\"} ${value_num_err_log_entries}"
 
-  value_power_cycles="$(echo "$json_check" | jq '.power_cycles')"
+  value_power_cycles="$(echo "$json_check" | jq -r '.power_cycles')"
   echo "power_cycles_total{device=\"${disk}\"} ${value_power_cycles}"
 
-  value_power_on_hours="$(echo "$json_check" | jq '.power_on_hours')"
+  value_power_on_hours="$(echo "$json_check" | jq -r '.power_on_hours')"
   echo "power_on_hours_total{device=\"${disk}\"} ${value_power_on_hours}"
 
-  value_controller_busy_time="$(echo "$json_check" | jq '.controller_busy_time')"
+  value_controller_busy_time="$(echo "$json_check" | jq -r '.controller_busy_time')"
   echo "controller_busy_time_seconds{device=\"${disk}\"} ${value_controller_busy_time}"
 
-  value_data_units_written="$(echo "$json_check" | jq '.data_units_written')"
+  value_data_units_written="$(echo "$json_check" | jq -r '.data_units_written')"
   echo "data_units_written_total{device=\"${disk}\"} ${value_data_units_written}"
 
-  value_data_units_read="$(echo "$json_check" | jq '.data_units_read')"
+  value_data_units_read="$(echo "$json_check" | jq -r '.data_units_read')"
   echo "data_units_read_total{device=\"${disk}\"} ${value_data_units_read}"
 
-  value_host_read_commands="$(echo "$json_check" | jq '.host_read_commands')"
+  value_host_read_commands="$(echo "$json_check" | jq -r '.host_read_commands')"
   echo "host_read_commands_total{device=\"${disk}\"} ${value_host_read_commands}"
 
-  value_host_write_commands="$(echo "$json_check" | jq '.host_write_commands')"
+  value_host_write_commands="$(echo "$json_check" | jq -r '.host_write_commands')"
   echo "host_write_commands_total{device=\"${disk}\"} ${value_host_write_commands}"
 done | format_output
