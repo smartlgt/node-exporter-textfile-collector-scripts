@@ -533,7 +533,9 @@ def collect_disks_smart_metrics(wakeup_disks, by_id):
     now = int(datetime.datetime.utcnow().timestamp())
 
     for device in find_devices(by_id):
-        metrics['smartctl_run'].labels(device.base_labels).set(now)
+        metrics['smartctl_run'].labels(
+            device.base_labels["device"], device.base_labels["disk"]
+        ).set(now)
         is_active = device_is_active(device)
         metrics["device_active"].labels(
             device.base_labels["device"], device.base_labels["disk"],
