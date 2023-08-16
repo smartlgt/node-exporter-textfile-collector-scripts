@@ -173,6 +173,44 @@ metrics = {
         namespace=namespace,
         registry=registry,
     ),
+
+    # json data
+    "device_capabilities": Gauge(
+        "device_capabilities",
+        "SMART metric device_capabilities",
+        ["device", "disk"],
+        namespace=namespace,
+        registry=registry,
+    ),
+    "device_data_collection": Gauge(
+        "device_data_collection",
+        "SMART metric device_data_collection",
+        ["device", "disk", "status"],
+        namespace=namespace,
+        registry=registry,
+    ),
+    "device_power_on": Gauge(
+        "device_power_on",
+        "SMART metric device_power_on",
+        ["device", "disk"],
+        namespace=namespace,
+        registry=registry,
+    ),
+    "device_self_test_latest": Gauge(
+        "device_self_test_latest",
+        "SMART metric device_self_test_latest",
+        ["device", "disk"],
+        namespace=namespace,
+        registry=registry,
+    ),
+    "device_self_tests": Gauge(
+        "device_self_tests",
+        "SMART metric device_self_tests",
+        ["device", "disk", "test", "passed", "entry"],
+        namespace=namespace,
+        registry=registry,
+    ),
+
 }
 
 SmartAttribute = collections.namedtuple('SmartAttribute', [
@@ -433,9 +471,9 @@ def collect_ata_error_count(device):
     ).set(error_count)
 
 
-def collect_disks_metrics_json(wakeup_disks, data_collection=True, self_test_latest=True, capabilities=True,
+def collect_disks_metrics_json(wakeup_disks, by_id, data_collection=True, self_test_latest=True, capabilities=True,
                                self_test_log=True):
-    for device in find_devices():
+    for device in find_devices(by_id):
         is_active = device_is_active(device)
 
         # Skip further metrics collection to prevent the disk from
@@ -446,27 +484,30 @@ def collect_disks_metrics_json(wakeup_disks, data_collection=True, self_test_lat
         # collect test results for the device
         data = smart_ctl_json(device)
 
-        yield from collect_power_on(device, data)
+        collect_power_on(device, data)
 
         if self_test_log:
-            yield from collect_self_test_logs(device, data)
+            collect_self_test_logs(device, data)
 
         if data_collection:
-            yield from collect_offline_data_collection(device, data)
+            collect_offline_data_collection(device, data)
 
         if self_test_latest:
-            yield from collect_self_test_latest(device, data)
+            collect_self_test_latest(device, data)
 
         if capabilities:
-            yield from collect_capabilities(device, data)
+            collect_capabilities(device, data)
 
 
 def collect_offline_data_collection(device, data):
     # offline_data_collection
     device_label = device.base_labels
+    metrics['device_data_collection'].clear()
     if data.get("ata_smart_data", None) and data["ata_smart_data"].get("offline_data_collection", None):
         device_label["status"] = str(data["ata_smart_data"]["offline_data_collection"]["status"]["value"])
-        yield Metric('device_data_collection', device_label, data["ata_smart_data"]["offline_data_collection"]["completion_seconds"])
+        metrics['device_data_collection'].labels(
+            **device_label
+        ).set(data["ata_smart_data"]["offline_data_collection"]["completion_seconds"])
 
 
 def collect_self_test_latest(device, data):
@@ -475,28 +516,36 @@ def collect_self_test_latest(device, data):
     if data.get("ata_smart_data", None) and data["ata_smart_data"].get("self_test", None):
         device_label["status"] = str(data["ata_smart_data"]["self_test"]["status"]["value"])
         percentage = data["ata_smart_data"]["self_test"]["status"].get("remaining_percent", 0)
-        yield Metric('device_self_test_latest', device_label, percentage)
+        metrics['device_self_test_latest'].labels(
+            device.base_labels["device"], device.base_labels["disk"]
+        ).set(percentage)
 
 
 def collect_capabilities(device, data):
     # capabilities
     device_label = device.base_labels
+    metrics['device_self_test_latest'].clear()
     if data.get("ata_smart_data", None) and data["ata_smart_data"].get("capabilities", None):
         for cap, value in data["ata_smart_data"]["capabilities"].items():
             if cap != "values":
                 device_label[cap] = str(value).lower()
-        yield Metric('device_capabilities', device_label, 1)
+        metrics['device_capabilities'].labels(
+            **device_label
+        ).set(1)
 
 
 def collect_power_on(device, data):
     # extra timing info, tests with no time reference are not useful
     if data.get('power_on_time', None) and data["power_on_time"].get('hours', None):
         power_on_time = data["power_on_time"]["hours"]
-        yield Metric('device_power_on', device.base_labels, power_on_time)
+        metrics['device_power_on'].labels(
+            device.base_labels["device"], device.base_labels["disk"]
+        ).set(power_on_time)
 
 
 def collect_self_test_logs(device, data):
     tests = data.get('ata_smart_self_test_log', None)
+    metrics['device_self_tests'].clear()
     if tests and 'standard' in tests:
         table = tests.get('standard').get('table', None)
         i = 0
@@ -526,7 +575,9 @@ def collect_self_test_logs(device, data):
 
             device_label["entry"] = str(i)
 
-            yield Metric('device_self_tests', device_label, power_on_hours)
+            metrics['device_self_tests'].labels(
+                **device_label
+            ).set(power_on_hours)
 
 
 def collect_disks_smart_metrics(wakeup_disks, by_id):
@@ -577,31 +628,20 @@ def main():
                         help="Use /dev/disk/by-id/X instead of /dev/sdX to index devices")
     args = parser.parse_args(sys.argv[1:])
 
-    metrics = list(collect_disks_smart_metrics(args.wakeup_disks, args.by_id))
-
-    version = smart_ctl_version()
     metrics["smartctl_version"].labels(smart_ctl_version()).set(1)
 
     metric_print_meta(metrics["smartctl_version"], 'smartmon_')
     metric_print(metrics["smartctl_version"], 'smartmon_')
 
+    collect_disks_smart_metrics(args.wakeup_disks, args.by_id)
+
     # new metrics form json output
     try:
-        if float(version) >= 7.0:
-            metrics += list(collect_disks_metrics_json(args.wakeup_disks))
+        if float(smart_ctl_version()) >= 7.0:
+            collect_disks_metrics_json(args.wakeup_disks, args.by_id)
     except ValueError:
         pass
 
-    metrics.sort(key=lambda i: i.name)
-
-    previous_name = None
-    for m in metrics:
-        if m.name != previous_name:
-            metric_print_meta(m, 'smartmon_')
-
-            previous_name = m.name
-
-    collect_disks_smart_metrics(args.wakeup_disks, args.by_id)
     print(generate_latest(registry).decode(), end="")
 
 
