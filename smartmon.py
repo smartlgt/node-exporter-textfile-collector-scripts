@@ -473,6 +473,11 @@ def collect_ata_error_count(device):
 
 def collect_disks_metrics_json(wakeup_disks, by_id, data_collection=True, self_test_latest=True, capabilities=True,
                                self_test_log=True):
+    # ensure labels get reset for the following metrics
+    metrics['device_self_test_latest'].clear()
+    metrics['device_data_collection'].clear()
+    metrics['device_self_tests'].clear()
+
     for device in find_devices(by_id):
         is_active = device_is_active(device)
 
@@ -502,7 +507,6 @@ def collect_disks_metrics_json(wakeup_disks, by_id, data_collection=True, self_t
 def collect_offline_data_collection(device, data):
     # offline_data_collection
     device_label = device.base_labels
-    metrics['device_data_collection'].clear()
     if data.get("ata_smart_data", None) and data["ata_smart_data"].get("offline_data_collection", None):
         device_label["status"] = str(data["ata_smart_data"]["offline_data_collection"]["status"]["value"])
         metrics['device_data_collection'].labels(
@@ -524,7 +528,6 @@ def collect_self_test_latest(device, data):
 def collect_capabilities(device, data):
     # capabilities
     device_label = device.base_labels
-    metrics['device_self_test_latest'].clear()
     if data.get("ata_smart_data", None) and data["ata_smart_data"].get("capabilities", None):
         for cap, value in data["ata_smart_data"]["capabilities"].items():
             if cap != "values":
@@ -545,7 +548,6 @@ def collect_power_on(device, data):
 
 def collect_self_test_logs(device, data):
     tests = data.get('ata_smart_self_test_log', None)
-    metrics['device_self_tests'].clear()
     if tests and 'standard' in tests:
         table = tests.get('standard').get('table', None)
         i = 0
