@@ -630,9 +630,6 @@ def main():
 
     metrics["smartctl_version"].labels(smart_ctl_version()).set(1)
 
-    metric_print_meta(metrics["smartctl_version"], 'smartmon_')
-    metric_print(metrics["smartctl_version"], 'smartmon_')
-
     collect_disks_smart_metrics(args.wakeup_disks, args.by_id)
 
     # new metrics form json output
